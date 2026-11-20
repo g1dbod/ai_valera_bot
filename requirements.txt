@@ -1,0 +1,6 @@
+aiogram
+openai
+asyncpg
+sqlalchemy
+greenlet
+tenacity
