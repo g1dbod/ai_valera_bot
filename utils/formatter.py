@@ -7,6 +7,19 @@ def format_to_html(text: str) -> str:
     if not text:
         return ""
 
+    # --- ЭТАП 0: Очистка от технических артефактов LLM ---
+    # Заменяем литералы \\n на реальные переносы строк
+    text = text.replace(r'\\n', '\\n')
+    # Заменяем \\1, \\2 и т.д. в начале строк на маркеры списков
+    text = re.sub(r'^\\s*\\\\\\d+[\\s\\.]*', '• ', text, flags=re.MULTILINE)
+    # Заменяем LaTeX-подобные стрелки и символы
+    text = text.replace(r'\\rightarrow', '→')
+    text = text.replace(r'\\Rightarrow', '⇒')
+    text = text.replace(r'\\leftarrow', '←')
+    text = text.replace(r'\\checkmark', '✓')
+    text = text.replace(r'\\times', '×')
+    
+
     placeholders: List[str] = []
 
     def stash(chunk: str) -> str:
