@@ -155,8 +155,8 @@ def split_text(text: str, max_length: int = 4000) -> List[str]:
 
 
 def wrap_answer(answer: str, model_name: str) -> str:
-    body = format_to_html(answer) if answer else "<i>(пустой ответ)</i>"
-    return f"{body}\n\n<i>— {html.escape(model_name)}</i>"
+    body = format_to_html(answer) if answer else "(пустой ответ)"
+    return f"{body}\n\n— {html.escape(model_name)}"
 
 
 async def safe_edit(chat_id: int, message_id: int, text: str, parse_mode: Optional[str] = "HTML"):

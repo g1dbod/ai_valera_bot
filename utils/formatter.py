@@ -80,5 +80,5 @@ def split_text(text: str, limit: int = 4096) -> List[str]:
 
 def wrap_answer(text: str, model_name: str) -> str:
     """Добавляет подпись с названием модели к ответу."""
-    return f"{text}\n\n<i>🤖 Модель: {html.escape(model_name)}</i>"
+    return f"{text}\n\n🤖 Модель: {html.escape(model_name)}"
 

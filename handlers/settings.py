@@ -31,6 +31,7 @@ async def cmd_settings(message: types.Message, state: FSMContext):
     config = await get_config(message.from_user.id)
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="🔑 Добавить API", callback_data="set_api"))
+    kb.row(InlineKeyboardButton(text="➕ Добавить модель", callback_data="add_model"))
     kb.row(InlineKeyboardButton(text="🤖 Выбрать модель", callback_data="set_model"))
     kb.row(InlineKeyboardButton(text="📝 Контекст", callback_data="set_context"))
     kb.row(InlineKeyboardButton(text="🗑 Удалить API", callback_data="del_api"))
@@ -75,6 +76,28 @@ async def set_model_start(callback: types.CallbackQuery, state: FSMContext):
     
     await callback.message.answer("Выберите API для настройки моделей:", reply_markup=kb.as_markup())
     await callback.answer()
+@router.callback_query(F.data == "add_model")
+async def add_model_start(callback: types.CallbackQuery, state: FSMContext):
+    config = await get_config(callback.from_user.id)
+    if not config.apis:
+        await callback.message.answer("❌ Сначала добавьте хотя бы один API.")
+        return await callback.answer()
+    
+    kb = InlineKeyboardBuilder()
+    for api_name in config.apis.keys():
+        kb.add(InlineKeyboardButton(text=api_name, callback_data=f"api_sel_add:{api_name}"))
+    
+    await callback.message.answer("Выберите API, в которое хотите добавить модель:", reply_markup=kb.as_markup())
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("api_sel_add:"))
+async def api_selected_add(callback: types.CallbackQuery, state: FSMContext):
+    api_name = callback.data.split(":")[1]
+    await callback.message.answer(f"Пришлите название новой модели для {api_name}:")
+    await state.set_state(BotStates.waiting_for_model)
+    await state.update_data(current_api=api_name, mode="add")
+    await callback.answer()
+
 
 @router.callback_query(F.data.startswith("api_sel:"))
 async def api_selected(callback: types.CallbackQuery, state: FSMContext):
@@ -90,7 +113,7 @@ async def api_selected(callback: types.CallbackQuery, state: FSMContext):
         return await callback.answer()
     
     for model in models:
-        kb.add(InlineKeyboardButton(text=model, callback_data=f"mod_sel:{model}"))
+        kb.row(InlineKeyboardButton(text=model, callback_data=f"mod_sel:{model}"))
     
     await callback.message.edit_text(f"Выберите модель для {api_name}:", reply_markup=kb.as_markup())
     await callback.answer()
@@ -122,18 +145,33 @@ async def model_selected(callback: types.CallbackQuery):
 async def set_model_finish(message: types.Message, state: FSMContext):
     data = await state.get_data()
     api_name = data.get("current_api")
+    mode = data.get("mode", "set") # "set" - перезаписать, "add" - добавить
+    
     if not api_name:
         await message.answer("Ошибка состояния.")
         return await state.clear()
     
     try:
-        models = [m.strip() for m in message.text.split(",")]
         config = await get_config(message.from_user.id)
-        config.models[api_name] = models
-        await save_config(config)
-        await message.answer(f"✅ Модели для {api_name} добавлены!")
+        current_models = config.models.get(api_name, [])
+        
+        if mode == "add":
+            # Добавляем одну или несколько моделей через запятую, убирая дубликаты
+            new_models = [m.strip() for m in message.text.split(",") if m.strip()]
+            updated_models = list(set(current_models + new_models))
+            config.models[api_name] = updated_models
+            await save_config(config)
+            await message.answer(f"✅ Модели {', '.join(new_models)} добавлены в {api_name}!")
+        else:
+            # Полная перезапись списка
+            models = [m.strip() for m in message.text.split(",") if m.strip()]
+            config.models[api_name] = models
+            await save_config(config)
+            await message.answer(f"✅ Модели для {api_name} обновлены!")
+            
         await state.clear()
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error in set_model_finish: {e}")
         await message.answer("❌ Ошибка. Пришлите список моделей через запятую.")
 
 @router.callback_query(F.data == "set_context")
