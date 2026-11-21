@@ -1,17 +1,17 @@
 import asyncio
 from config import bot, dp, logger
 from database import init_db
-from handlers import settings, main, help as help_handlers
+from handlers import settings, main as main_handlers, help as help_handlers
 from handlers.settings import set_main_menu
 
-async def main():
+async def start_bot():
     # Инициализация БД
     await init_db()
     
     # Регистрация роутеров
     dp.include_router(settings.router)
     dp.include_router(help_handlers.router)
-    dp.include_router(main.router)
+    dp.include_router(main_handlers.router)
     
     try:
         await set_main_menu()
@@ -23,7 +23,7 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        asyncio.run(start_bot())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Бот остановлен")
 
