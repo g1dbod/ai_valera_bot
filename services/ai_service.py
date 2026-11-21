@@ -58,6 +58,26 @@ def _extract_image_from_chat_message(msg_obj) -> Optional[str]:
             match = re.search(r'data:image/[^;]+;base64,([A-Za-z0-9+/=]+)', msg_obj.content)
             if match: return match.group(0)
     return None
+async def _get_image_base64(message: types.Message) -> Optional[str]:
+    try:
+        photo = None
+        if message.photo:
+            photo = message.photo[-1]
+        elif message.document and message.document.mime_type and message.document.mime_type.startswith("image/"):
+            file_id = message.document.file_id
+            file = await bot.get_file(file_id)
+            file_bytes = await bot.download_file(file.file_path)
+            return f"data:{message.document.mime_type};base64,{base64.b64encode(file_bytes.read()).decode('utf-8')}"
+        
+        if photo:
+            file = await bot.get_file(photo.file_id)
+            file_bytes = await bot.download_file(file.file_path)
+            return f"data:image/jpeg;base64,{base64.b64encode(file_bytes.read()).decode('utf-8')}"
+    except Exception as e:
+        logger.error(f"Error getting image base64: {e}")
+    return None
+
+
 
 # Декоратор для повторных попыток при ошибках сети или лимитах
 ai_retry = retry(
@@ -118,7 +138,6 @@ async def handle_ai_request(message: types.Message):
 
     try:
         user_text = message.text or message.caption or "Изображение"
-        messages = [{"role": "system", "content": config.context}] + config.history + [{"role": "user", "content": user_text}]
         
         cache_key = (message.from_user.id, config.selected_api, config.selected_model)
         
@@ -228,7 +247,19 @@ async def handle_ai_request(message: types.Message):
 
     try:
         user_text = message.text or message.caption or "Изображение"
-        messages = [{"role": "system", "content": config.context}] + config.history + [{"role": "user", "content": user_text}]
+        # Обработка изображения
+        image_base64 = await _get_image_base64(message)
+        
+        if image_base64:
+            # Формируем контент для мультимодальной модели (текст + картинка)
+            user_content = [
+                {"type": "text", "text": user_text},
+                {"type": "image_url", "image_url": {"url": image_base64}}
+            ]
+        else:
+            user_content = user_text
+
+        messages = [{"role": "system", "content": config.context}] + config.history + [{"role": "user", "content": user_content}]
         
         cache_key = (message.from_user.id, config.selected_api, config.selected_model)
         
