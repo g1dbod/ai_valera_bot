@@ -100,9 +100,22 @@ async def api_selected(callback: types.CallbackQuery, state: FSMContext):
 async def model_selected(callback: types.CallbackQuery):
     model_name = callback.data.split(":")[1]
     config = await get_config(callback.from_user.id)
-    config.selected_model = model_name
-    await save_config(config)
-    await callback.message.edit_text(f"✅ Модель {model_name} выбрана!")
+    
+    # Находим, к какому API принадлежит эта модель
+    selected_api = None
+    for api_name, models in config.models.items():
+        if model_name in models:
+            selected_api = api_name
+            break
+    
+    if selected_api:
+        config.selected_api = selected_api
+        config.selected_model = model_name
+        await save_config(config)
+        await callback.message.edit_text(f"✅ Модель {model_name} (API: {selected_api}) выбрана!")
+    else:
+        await callback.message.edit_text(f"❌ Ошибка: модель {model_name} не найдена ни в одном API.")
+    
     await callback.answer()
 
 @router.message(BotStates.waiting_for_model)
