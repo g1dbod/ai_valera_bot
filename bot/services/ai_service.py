@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import AsyncIterator, Optional
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APIStatusError, APITimeoutError
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +54,14 @@ def _pick_text(msg) -> str:
     if not text:
         text = (getattr(msg, "reasoning_content", None) or "").strip()
     return text
+
+def _friendly_error(exc: Exception) -> RuntimeError:
+    """Технические ошибки SDK → понятный текст для пользователя."""
+    if isinstance(exc, APITimeoutError):
+        return RuntimeError("модель не ответила за отведённое время — попробуйте другую")
+    if isinstance(exc, APIStatusError):
+        return RuntimeError(f"провайдер вернул ошибку {exc.status_code} — модель недоступна")
+    return RuntimeError(str(exc).split("\n")[0][:200])
 
 
 async def stream_chat(
@@ -110,9 +118,15 @@ async def stream_chat(
                 "streaming unsupported by provider (%s: %s) — retrying without stream",
                 type(exc).__name__, exc,
             )
-            resp = await client.chat.completions.create(
-                model=model_id, messages=messages, stream=False
-            )
+
+            try:
+                resp = await client.chat.completions.create(
+                    model=model_id, messages=messages, stream=False
+                )
+            except Exception as exc2:
+                log.error("non-stream fallback failed: %s", exc2)
+                raise _friendly_error(exc2) from exc2
+
             text = _pick_text(resp.choices[0].message if resp.choices else None)
             if text:
                 produced += 1

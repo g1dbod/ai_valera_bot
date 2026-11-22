@@ -171,10 +171,11 @@ async def _handle_chat(message, api, model, context, text, image_b64):
 
     except Exception as exc:
         log.exception("stream_chat error for user %d", message.from_user.id)
+        brief = str(exc).split("\n")[0][:200]
         try:
-            await placeholder.edit_text(f"❌ Ошибка: {exc}")
+            await placeholder.edit_text(f"❌ {brief}")
         except TelegramBadRequest:
-            await message.answer(f"❌ Ошибка: {exc}")
+            await message.answer(f"❌ {brief}")
 
 
 async def _get_message_text(msg) -> str:
