@@ -13,6 +13,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Syntax check
+        run: |
+            python -m compileall -q bot/
+            python - <<'PY'
+            import ast, pathlib, sys
+            bad = []
+            for p in pathlib.Path("bot").rglob("*.py"):
+                try:
+                    ast.parse(p.read_text(encoding="utf-8"))
+                except SyntaxError as e:
+                    bad.append(f"{p}: {e}")
+            if bad:
+                print("\n".join(bad)); sys.exit(1)
+            print("ok")
+            PY
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:

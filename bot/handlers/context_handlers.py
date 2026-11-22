@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import logging
-from aiogram import Router
+
+from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from bot.database import AsyncSessionLocal, get_context, set_context, clear_context
-
 from bot.handlers.common_handlers import cancel_kb
 
 log = logging.getLogger(__name__)
