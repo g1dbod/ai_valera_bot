@@ -5,6 +5,7 @@ from aiogram import Router
 from aiogram.types import Message
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.fsm.context import FSMContext
 
 from bot.database import AsyncSessionLocal, get_active_model, get_context, get_apis, get_models
 
@@ -36,6 +37,7 @@ HELP_TEXT = """
 <b>Прочее:</b>
 /settings — текущие настройки и быстрые кнопки
 /help — эта справка
+/cancel — прервать текущий ввод
 
 <b>Типы моделей:</b>
 • <b>chat</b> — текстовый диалог (со стримингом), поддерживает изображения
@@ -44,6 +46,13 @@ HELP_TEXT = """
 • <b>styled</b> — генерация с референсным изображением-стилем
 """
 
+@router.message(Command("cancel"))
+async def cmd_cancel(message: Message, state: FSMContext) -> None:
+    if await state.get_state() is None:
+        await message.answer("Нечего отменять.")
+        return
+    await state.clear()
+    await message.answer("↩️ Ввод отменён. Можете начать заново.")
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:

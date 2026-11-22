@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
@@ -36,17 +37,23 @@ async def cmd_add_api(message: Message, state: FSMContext) -> None:
 @router.message(AddAPIStates.waiting_input)
 async def add_api_input(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
-    parts = [p.strip() for p in raw.split("|")]
 
-    if len(parts) != 3 or not all(parts):
+    # разделители — "|" и переводы строк, пустые куски выбрасываем
+    parts = [p.strip() for p in re.split(r"[|\n]+", raw) if p.strip()]
+
+    if len(parts) < 3:
         await message.answer(
-            "❌ Нужно ровно три части, разделённые символом <code>|</code>:\n"
-            "<code>Название|ссылка|ключ</code>",
+            "❌ Нужно три значения: <b>название</b>, <b>ссылка</b> и <b>ключ</b>.\n\n"
+            "Можно одной строкой:\n"
+            "<code>Название|ссылка|ключ</code>\n\n"
+            "Или в три строки:\n"
+            "<code>Название\nссылка\nключ</code>",
             parse_mode="HTML",
         )
         return
 
-    name, url, key = parts
+    name, url = parts[0], parts[1]
+    key = "|".join(parts[2:])          # если в ключе случайно есть "|"
 
     if not name or len(name) > 64:
         await message.answer("❌ Название должно быть от 1 до 64 символов. Попробуйте ещё раз:")
@@ -65,7 +72,7 @@ async def add_api_input(message: Message, state: FSMContext) -> None:
         existing = await get_api_by_name(session, message.from_user.id, name)
     if existing:
         await message.answer(
-            f"❌ API с названием «{name}» уже существует. Введите данные с другим названием:"
+            f"❌ API с названием «{name}» уже существует. Введите другое название:"
         )
         return
 

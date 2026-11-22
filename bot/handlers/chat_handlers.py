@@ -5,7 +5,7 @@ import logging
 
 from aiogram import Router, F, Bot
 from aiogram.types import Message, BufferedInputFile
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 
 from bot.database import (
     AsyncSessionLocal, get_active_model, get_context,
@@ -58,7 +58,7 @@ async def cmd_clear_history(message: Message) -> None:
     log.info("User %d cleared chat history for model id=%d", user_id, model.id)
     await message.answer("🗑 История чата очищена. Начинаем с чистого листа.")
 
-@router.message(F.text & ~F.text.startswith("/"))
+@router.message(StateFilter(None), F.text & ~F.text.startswith("/"))
 async def handle_text(message: Message, bot: Bot) -> None:
     user_id = message.from_user.id
     model, api, context = await _get_active(user_id)
@@ -80,7 +80,7 @@ async def handle_text(message: Message, bot: Bot) -> None:
 
 
 
-@router.message(F.photo)
+@router.message(StateFilter(None), F.photo)
 async def handle_photo(message: Message, bot: Bot) -> None:
     user_id = message.from_user.id
     model, api, context = await _get_active(user_id)
