@@ -19,6 +19,13 @@ from bot.services.image_service import (
     svg_to_png_bytes,
 )
 
+import asyncio
+import time
+
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
+
+from bot.utils.formatting import format_to_html, split_text
+
 log = logging.getLogger(__name__)
 router = Router()
 
@@ -105,10 +112,20 @@ async def handle_photo(message: Message, bot: Bot) -> None:
         await _handle_chat(message, api, model, context, caption or "Опиши изображение.", image_b64)
 
 
+TAIL_LIMIT = 3900
+EDIT_EVERY = 1.5      # сек между правками сообщения (флуд-контроль Telegram)
+
+
+def _tail(text: str) -> str:
+    if len(text) <= TAIL_LIMIT:
+        return text
+    return "…" + text[-TAIL_LIMIT:]
+
+
 async def _handle_chat(message, api, model, context, text, image_b64):
     placeholder = await message.answer("⏳")
     accumulated = ""
-    last_sent_len = 0
+    last_edit = 0.0
 
     async with AsyncSessionLocal() as session:
         history = await get_history(session, message.from_user.id, model.id)
@@ -119,23 +136,45 @@ async def _handle_chat(message, api, model, context, text, image_b64):
             context, text, image_b64, history=history,
         ):
             accumulated += chunk
-            if len(accumulated) - last_sent_len >= STREAM_UPDATE_THRESHOLD:
-                try:
-                    await placeholder.edit_text(accumulated)
-                    last_sent_len = len(accumulated)
-                except Exception:
-                    pass
+            now = time.monotonic()
+            if now - last_edit < EDIT_EVERY:
+                continue
+            try:
+                await placeholder.edit_text(_tail(accumulated))
+                last_edit = now
+            except TelegramRetryAfter as exc:
+                last_edit = now + exc.retry_after
+            except TelegramBadRequest:
+                pass
 
-        await placeholder.edit_text(accumulated or "_(пустой ответ)_")
+        if not accumulated.strip():
+            await placeholder.edit_text("_(пустой ответ)_")
+            return
 
-        # сохраняем оба сообщения в историю
+        # финальный рендер: удаляем «⏳» и отправляем оформленный текст
+        try:
+            await placeholder.delete()
+        except TelegramBadRequest:
+            pass
+
+        for i, chunk in enumerate(split_text(accumulated)):
+            try:
+                await message.answer(format_to_html(chunk), parse_mode="HTML")
+            except TelegramBadRequest:
+                await message.answer(chunk)          # страховка от битой разметки
+
         async with AsyncSessionLocal() as session:
             await append_history(session, message.from_user.id, model.id, "user", text)
-            await append_history(session, message.from_user.id, model.id, "assistant", accumulated)
+            await append_history(
+                session, message.from_user.id, model.id, "assistant", accumulated
+            )
 
     except Exception as exc:
         log.exception("stream_chat error for user %d", message.from_user.id)
-        await placeholder.edit_text(f"❌ Ошибка: {exc}")
+        try:
+            await placeholder.edit_text(f"❌ Ошибка: {exc}")
+        except TelegramBadRequest:
+            await message.answer(f"❌ Ошибка: {exc}")
 
 
 async def _get_message_text(msg) -> str:
