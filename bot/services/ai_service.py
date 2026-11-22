@@ -25,30 +25,44 @@ async def stream_chat(
 
     content: list = []
     if image_base64:
-        content.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"},
-            }
-        )
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"},
+        })
     content.append({"type": "text", "text": user_message})
 
     messages = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
-
-        # вставляем историю перед текущим сообщением
     if history:
         messages.extend(history)
+    messages.append({
+        "role": "user",
+        "content": content if image_base64 else user_message,
+    })
 
-    messages.append({"role": "user", "content": content if image_base64 else user_message})
+    log.debug(
+        "stream_chat model=%s base_url=%s history_len=%d",
+        model_id, base_url, len(history or []),
+    )
 
-    log.debug("stream_chat model=%s base_url=%s", model_id, base_url)
-    async with client.chat.completions.stream(
-        model=model_id, messages=messages
-    ) as stream:
-        async for text in stream.text_stream:
-            yield text
+    stream = await client.chat.completions.create(
+        model=model_id,
+        messages=messages,
+        stream=True,
+    )
+
+    try:
+        async for chunk in stream:
+            if not chunk.choices:
+                continue                    # некоторые провайдеры шлют пустые чанки
+            delta = chunk.choices[0].delta
+            text = getattr(delta, "content", None)
+            if text:
+                yield text
+    finally:
+        await stream.close()
+        await client.close()
 
 
 async def generate_image(
