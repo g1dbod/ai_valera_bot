@@ -15,7 +15,7 @@ from bot.handlers.api_handlers import build_apis_text, start_add_api
 from bot.handlers.model_handlers import (
     build_models_text, build_select_model, start_add_model,
 )
-from bot.handlers.context_handlers import build_context_text, start_add_context
+from bot.handlers.context_handlers import build_context_panel, start_add_context
 
 log = logging.getLogger(__name__)
 router = Router()
@@ -105,7 +105,8 @@ async def cb_settings_cmd(callback: CallbackQuery, state: FSMContext) -> None:
         await msg.answer(await build_models_text(user_id), parse_mode="HTML")
 
     elif cmd == "context":
-        await msg.answer(await build_context_text(user_id), parse_mode="HTML")
+        text, kb = await build_context_panel(user_id)
+        await msg.answer(text, parse_mode="HTML", reply_markup=kb)
 
     elif cmd == "add_api":
         await start_add_api(user_id, state, msg.answer)
