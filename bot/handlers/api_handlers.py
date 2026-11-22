@@ -10,6 +10,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.database import AsyncSessionLocal, add_api, get_apis, delete_api, get_api_by_name
+from bot.handlers.common_handlers import cancel_kb
 
 log = logging.getLogger(__name__)
 router = Router()
@@ -48,7 +49,7 @@ async def build_apis_text(user_id: int) -> str:
 
 async def start_add_api(user_id: int, state: FSMContext, send) -> None:
     await state.set_state(AddAPIStates.waiting_input)
-    await send(ADD_API_PROMPT, parse_mode="HTML")
+    await send(ADD_API_PROMPT, parse_mode="HTML", reply_markup=cancel_kb())
 
 
 @router.message(Command("add_api"))
@@ -56,7 +57,7 @@ async def cmd_add_api(message: Message, state: FSMContext) -> None:
     await start_add_api(message.from_user.id, state, message.answer)
 
 
-@router.message(AddAPIStates.waiting_input)
+@router.message(AddAPIStates.waiting_input, ~F.text.startswith("/"))
 async def add_api_input(message: Message, state: FSMContext) -> None:
     raw = (message.text or "").strip()
 

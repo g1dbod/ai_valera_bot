@@ -54,15 +54,6 @@ async def cmd_help(message: Message) -> None:
     await message.answer(HELP_TEXT, parse_mode="HTML")
 
 
-@router.message(Command("cancel"))
-async def cmd_cancel(message: Message, state: FSMContext) -> None:
-    if await state.get_state() is None:
-        await message.answer("Нечего отменять.")
-        return
-    await state.clear()
-    await message.answer("↩️ Ввод отменён.")
-
-
 @router.message(Command("settings"))
 async def cmd_settings(message: Message) -> None:
     user_id = message.from_user.id

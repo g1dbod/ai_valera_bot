@@ -9,6 +9,8 @@ from aiogram.fsm.state import State, StatesGroup
 
 from bot.database import AsyncSessionLocal, get_context, set_context, clear_context
 
+from bot.handlers.common_handlers import cancel_kb
+
 log = logging.getLogger(__name__)
 router = Router()
 
@@ -32,14 +34,14 @@ async def build_context_text(user_id: int) -> str:
 
 async def start_add_context(user_id: int, state: FSMContext, send) -> None:
     await state.set_state(AddContextStates.waiting_text)
-    await send(ADD_CONTEXT_PROMPT, parse_mode="HTML")
+    await send(ADD_CONTEXT_PROMPT, parse_mode="HTML", reply_markup=cancel_kb())
 
 @router.message(Command("add_context"))
 async def cmd_add_context(message: Message, state: FSMContext) -> None:
     await start_add_context(message.from_user.id, state, message.answer)
 
 
-@router.message(AddContextStates.waiting_text)
+@router.message(AddContextStates.waiting_text, ~F.text.startswith("/"))
 async def save_context(message: Message, state: FSMContext) -> None:
     text = (message.text or "").strip()
     if not text:

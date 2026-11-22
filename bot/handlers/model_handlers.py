@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -13,6 +13,8 @@ from bot.database import (
     AsyncSessionLocal, add_model, get_models, get_apis,
     delete_model, set_active_model, get_model_by_name,
 )
+
+from bot.handlers.common_handlers import cancel_button, cancel_kb
 
 log = logging.getLogger(__name__)
 router = Router()
@@ -48,6 +50,9 @@ async def start_add_model(
 ) -> tuple[str, InlineKeyboardMarkup | None]:
     async with AsyncSessionLocal() as session:
         apis = await get_apis(session, user_id)
+
+    builder.adjust(2)
+    builder.row(cancel_button())
 
     if not apis:
         return "Сначала добавьте API через /add_api.", None
@@ -113,7 +118,7 @@ async def add_model_choose_api(callback: CallbackQuery, state: FSMContext) -> No
     )
 
 
-@router.message(AddModelStates.waiting_name)
+@router.message(AddModelStates.waiting_name, ~F.text.startswith("/"))
 async def add_model_name(message: Message, state: FSMContext) -> None:
     name = (message.text or "").strip()
     if not name or len(name) > 128:
@@ -135,7 +140,7 @@ async def add_model_name(message: Message, state: FSMContext) -> None:
     )
 
 
-@router.message(AddModelStates.waiting_model_id)
+@router.message(AddModelStates.waiting_model_id, ~F.text.startswith("/"))
 async def add_model_id(message: Message, state: FSMContext) -> None:
     model_id = (message.text or "").strip()
     if not model_id or len(model_id) > 256:
@@ -167,11 +172,19 @@ async def add_model_type(callback: CallbackQuery, state: FSMContext) -> None:
     mtype = callback.data.split(":", 1)[1]
     await state.update_data(model_type=mtype)
 
+    builder.adjust(2)
+    builder.row(cancel_button())
+    await message.answer(
+        "Выберите <b>тип модели</b>:", parse_mode="HTML",
+        reply_markup=builder.as_markup(),
+    )
+
     if mtype == "styled":
         await state.set_state(AddModelStates.waiting_style_image)
         await callback.message.edit_text(
             "Отправьте <b>референсное изображение</b> (стиль) для этой модели:",
             parse_mode="HTML",
+            reply_markup=cancel_kb(),
         )
     else:
         await _finish_add_model(callback.message, state, callback.from_user.id)

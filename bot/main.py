@@ -10,7 +10,10 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import TELEGRAM_BOT_TOKEN, LOG_FILE, LOG_LEVEL
 from bot.database import init_db
-from bot.handlers import api_handlers, model_handlers, chat_handlers, context_handlers, settings_handlers
+from bot.handlers import (
+    common_handlers, api_handlers, model_handlers,
+    chat_handlers, context_handlers, settings_handlers,
+)
 
 
 def setup_logging() -> None:
@@ -53,6 +56,7 @@ async def main() -> None:
 
     # Register routers
     for module in (
+        common_handlers,      # ← первым: отмена должна срабатывать всегда
         chat_handlers,
         api_handlers,
         model_handlers,
