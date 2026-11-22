@@ -9,6 +9,7 @@ from sqlalchemy import (
     UniqueConstraint, select, delete
 )
 from typing import Optional, List
+from sqlalchemy.orm import selectinload
 
 from bot.config import DATABASE_URL
 
@@ -146,6 +147,7 @@ async def get_models(session: AsyncSession, user_id: int) -> List[UserModel]:
     result = await session.execute(
         select(UserModel)
         .where(UserModel.user_id == user_id)
+        .options(selectinload(UserModel.api))          # ← добавить
         .order_by(UserModel.name)
     )
     return list(result.scalars().all())
@@ -155,7 +157,9 @@ async def get_model_by_name(
     session: AsyncSession, user_id: int, name: str
 ) -> Optional[UserModel]:
     result = await session.execute(
-        select(UserModel).where(UserModel.user_id == user_id, UserModel.name == name)
+        select(UserModel)
+        .where(UserModel.user_id == user_id, UserModel.name == name)
+        .options(selectinload(UserModel.api))
     )
     return result.scalar_one_or_none()
 
@@ -164,9 +168,9 @@ async def get_active_model(
     session: AsyncSession, user_id: int
 ) -> Optional[UserModel]:
     result = await session.execute(
-        select(UserModel).where(
-            UserModel.user_id == user_id, UserModel.is_active == True  # noqa: E712
-        )
+        select(UserModel)
+        .where(UserModel.user_id == user_id, UserModel.is_active == True)  # noqa: E712
+        .options(selectinload(UserModel.api))          # ← добавить
     )
     return result.scalar_one_or_none()
 

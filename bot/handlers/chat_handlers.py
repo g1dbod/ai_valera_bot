@@ -32,6 +32,8 @@ async def _get_active(user_id: int):
         if model is None:
             return None, None, None
         api = model.api
+        if api is None:
+            return model, None, None      # модель есть, но API потерян
         context = await get_context(session, user_id)
         return model, api, context
 
@@ -64,6 +66,9 @@ async def handle_text(message: Message, bot: Bot) -> None:
     model, api, context = await _get_active(user_id)
     if model is None:
         await message.answer("Выберите активную модель через /select_model.")
+        return
+    if api is None:
+        await message.answer("У активной модели потеряно API-подключение. Удалите её через /delete_model и добавьте заново.")
         return
 
     text = message.text or ""
