@@ -15,66 +15,74 @@ router = Router()
 
 
 class AddAPIStates(StatesGroup):
-    waiting_name = State()
-    waiting_key = State()
-    waiting_url = State()
-
-
-class DeleteAPIStates(StatesGroup):
-    waiting_name = State()
+    waiting_input = State()
 
 
 @router.message(Command("add_api"))
 async def cmd_add_api(message: Message, state: FSMContext) -> None:
-    await state.set_state(AddAPIStates.waiting_name)
+    await state.set_state(AddAPIStates.waiting_input)
     await message.answer(
-        "Введите <b>название</b> для этого API-подключения (любое короткое имя):",
+        "Введите данные API <b>одной строкой</b> в формате:\n\n"
+        "<code>Название|ссылка|ключ</code>\n\n"
+        "Пример:\n"
+        "<code>OpenAI|https://api.openai.com/v1|sk-proj-xxxx</code>\n\n"
+        "• <b>Название</b> — как вы будете видеть этот API при выборе модели\n"
+        "• <b>ссылка</b> — base URL, заканчивается на <code>/v1</code>\n"
+        "• <b>ключ</b> — секретный ключ API",
         parse_mode="HTML",
     )
 
 
-@router.message(AddAPIStates.waiting_name)
-async def add_api_name(message: Message, state: FSMContext) -> None:
-    name = (message.text or "").strip()
-    if not name:
-        await message.answer("Название не может быть пустым. Попробуйте ещё раз:")
+@router.message(AddAPIStates.waiting_input)
+async def add_api_input(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip()
+    parts = [p.strip() for p in raw.split("|")]
+
+    if len(parts) != 3 or not all(parts):
+        await message.answer(
+            "❌ Нужно ровно три части, разделённые символом <code>|</code>:\n"
+            "<code>Название|ссылка|ключ</code>",
+            parse_mode="HTML",
+        )
         return
+
+    name, url, key = parts
+
+    if not name or len(name) > 64:
+        await message.answer("❌ Название должно быть от 1 до 64 символов. Попробуйте ещё раз:")
+        return
+
+    if not url.startswith(("http://", "https://")):
+        await message.answer(
+            "❌ Ссылка должна начинаться с <code>http://</code> или <code>https://</code>.",
+            parse_mode="HTML",
+        )
+        return
+
+    url = url.rstrip("/")
+
     async with AsyncSessionLocal() as session:
         existing = await get_api_by_name(session, message.from_user.id, name)
     if existing:
-        await message.answer(f"API с именем «{name}» уже существует. Введите другое имя:")
+        await message.answer(
+            f"❌ API с названием «{name}» уже существует. Введите данные с другим названием:"
+        )
         return
-    await state.update_data(name=name)
-    await state.set_state(AddAPIStates.waiting_key)
-    await message.answer("Введите <b>API-ключ</b>:", parse_mode="HTML")
 
+    async with AsyncSessionLocal() as session:
+        api = await add_api(session, message.from_user.id, name, key, url)
 
-@router.message(AddAPIStates.waiting_key)
-async def add_api_key(message: Message, state: FSMContext) -> None:
-    key = (message.text or "").strip()
-    if not key:
-        await message.answer("Ключ не может быть пустым:")
-        return
-    await state.update_data(api_key=key)
-    await state.set_state(AddAPIStates.waiting_url)
+    await state.clear()
+    log.info("User %d added API '%s' (%s)", message.from_user.id, api.name, api.base_url)
+
+    masked = api.api_key[:6] + "..." + api.api_key[-4:] if len(api.api_key) > 12 else "***"
     await message.answer(
-        "Введите <b>Base URL</b> API (например, <code>https://api.openai.com/v1</code>):",
+        f"✅ API добавлен: <b>{api.name}</b>\n"
+        f"URL: <code>{api.base_url}</code>\n"
+        f"Ключ: <code>{masked}</code>\n\n"
+        "Теперь добавьте модель через /add_model.",
         parse_mode="HTML",
     )
-
-
-@router.message(AddAPIStates.waiting_url)
-async def add_api_url(message: Message, state: FSMContext) -> None:
-    url = (message.text or "").strip().rstrip("/")
-    if not url.startswith("http"):
-        await message.answer("URL должен начинаться с http:// или https://. Попробуйте снова:")
-        return
-    data = await state.get_data()
-    async with AsyncSessionLocal() as session:
-        api = await add_api(session, message.from_user.id, data["name"], data["api_key"], url)
-    await state.clear()
-    log.info("User %d added API '%s'", message.from_user.id, api.name)
-    await message.answer(f"✅ API <b>{api.name}</b> добавлен.", parse_mode="HTML")
 
 
 @router.message(Command("api"))
@@ -84,7 +92,7 @@ async def cmd_list_apis(message: Message) -> None:
     if not apis:
         await message.answer("У вас нет добавленных API. Используйте /add_api.")
         return
-    lines = [f"<b>Ваши API-подключения:</b>"]
+    lines = ["<b>Ваши API-подключения:</b>"]
     for a in apis:
         masked = a.api_key[:6] + "..." + a.api_key[-4:] if len(a.api_key) > 12 else "***"
         lines.append(f"• <b>{a.name}</b> — {a.base_url} (ключ: <code>{masked}</code>)")
@@ -92,7 +100,7 @@ async def cmd_list_apis(message: Message) -> None:
 
 
 @router.message(Command("delete_api"))
-async def cmd_delete_api(message: Message, state: FSMContext) -> None:
+async def cmd_delete_api(message: Message) -> None:
     async with AsyncSessionLocal() as session:
         apis = await get_apis(session, message.from_user.id)
     if not apis:
@@ -100,18 +108,26 @@ async def cmd_delete_api(message: Message, state: FSMContext) -> None:
         return
     builder = InlineKeyboardBuilder()
     for a in apis:
-        builder.button(text=a.name, callback_data=f"del_api:{a.name}")
+        builder.button(text=a.name, callback_data=f"del_api:{a.id}")
     builder.adjust(2)
-    await message.answer("Выберите API для удаления:", reply_markup=builder.as_markup())
+    await message.answer(
+        "Выберите API для удаления "
+        "(вместе с ним удалятся все модели, привязанные к нему):",
+        reply_markup=builder.as_markup(),
+    )
 
 
 @router.callback_query(F.data.startswith("del_api:"))
 async def cb_delete_api(callback: CallbackQuery) -> None:
-    name = callback.data.split(":", 1)[1]
+    api_id = int(callback.data.split(":", 1)[1])
     async with AsyncSessionLocal() as session:
-        removed = await delete_api(session, callback.from_user.id, name)
-    if removed:
-        log.info("User %d deleted API '%s'", callback.from_user.id, name)
-        await callback.message.edit_text(f"🗑 API <b>{name}</b> удалён.", parse_mode="HTML")
-    else:
-        await callback.answer("API не найден.", show_alert=True)
+        apis = await get_apis(session, callback.from_user.id)
+        api = next((a for a in apis if a.id == api_id), None)
+        if api is None:
+            await callback.answer("API не найден.", show_alert=True)
+            return
+        name = api.name
+        await delete_api(session, callback.from_user.id, name)
+
+    log.info("User %d deleted API '%s'", callback.from_user.id, name)
+    await callback.message.edit_text(f"🗑 API <b>{name}</b> удалён.", parse_mode="HTML")
