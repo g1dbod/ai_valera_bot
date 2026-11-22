@@ -228,7 +228,7 @@ async def _handle_svg_gen(message, bot, api, model, context, text):
         await placeholder.delete()
     except Exception as exc:
         log.exception("svg gen error user %d", message.from_user.id)
-        await placeholder.edit_text(f"❌ Ошибка: {exc}")
+        await placeholder.edit_text(f"❌ {str(exc).split(chr(10))[0][:200]}")
 
 
 async def _handle_styled_gen(message, bot, api, model, text):
@@ -257,4 +257,4 @@ async def _handle_styled_gen(message, bot, api, model, text):
             await placeholder.edit_text(f"Результат (текст): {result[:1000]}")
     except Exception as exc:
         log.exception("styled gen error user %d", message.from_user.id)
-        await placeholder.edit_text(f"❌ Ошибка: {exc}")
+        await placeholder.edit_text(f"❌ {str(exc).split(chr(10))[0][:200]}")

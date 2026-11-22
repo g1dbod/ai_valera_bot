@@ -18,20 +18,42 @@ router = Router()
 class AddAPIStates(StatesGroup):
     waiting_input = State()
 
+ADD_API_PROMPT = (
+    "Введите данные API <b>одной строкой</b> в формате:\n\n"
+    "<code>Название|ссылка|ключ</code>\n\n"
+    "Пример:\n"
+    "<code>OpenAI|https://api.openai.com/v1|sk-proj-xxxx</code>\n\n"
+    "• <b>Название</b> — как вы будете видеть этот API при выборе модели\n"
+    "• <b>ссылка</b> — base URL, заканчивается на <code>/v1</code>\n"
+    "• <b>ключ</b> — секретный ключ API"
+)
+
+
+def _mask(key: str) -> str:
+    return key[:6] + "..." + key[-4:] if len(key) > 12 else "***"
+
+
+async def build_apis_text(user_id: int) -> str:
+    async with AsyncSessionLocal() as session:
+        apis = await get_apis(session, user_id)
+    if not apis:
+        return "У вас нет добавленных API. Используйте /add_api."
+    lines = ["<b>Ваши API-подключения:</b>"]
+    for a in apis:
+        lines.append(
+            f"• <b>{a.name}</b> — {a.base_url} (ключ: <code>{_mask(a.api_key)}</code>)"
+        )
+    return "\n".join(lines)
+
+
+async def start_add_api(user_id: int, state: FSMContext, send) -> None:
+    await state.set_state(AddAPIStates.waiting_input)
+    await send(ADD_API_PROMPT, parse_mode="HTML")
+
 
 @router.message(Command("add_api"))
 async def cmd_add_api(message: Message, state: FSMContext) -> None:
-    await state.set_state(AddAPIStates.waiting_input)
-    await message.answer(
-        "Введите данные API <b>одной строкой</b> в формате:\n\n"
-        "<code>Название|ссылка|ключ</code>\n\n"
-        "Пример:\n"
-        "<code>OpenAI|https://api.openai.com/v1|sk-proj-xxxx</code>\n\n"
-        "• <b>Название</b> — как вы будете видеть этот API при выборе модели\n"
-        "• <b>ссылка</b> — base URL, заканчивается на <code>/v1</code>\n"
-        "• <b>ключ</b> — секретный ключ API",
-        parse_mode="HTML",
-    )
+    await start_add_api(message.from_user.id, state, message.answer)
 
 
 @router.message(AddAPIStates.waiting_input)
@@ -94,16 +116,8 @@ async def add_api_input(message: Message, state: FSMContext) -> None:
 
 @router.message(Command("api"))
 async def cmd_list_apis(message: Message) -> None:
-    async with AsyncSessionLocal() as session:
-        apis = await get_apis(session, message.from_user.id)
-    if not apis:
-        await message.answer("У вас нет добавленных API. Используйте /add_api.")
-        return
-    lines = ["<b>Ваши API-подключения:</b>"]
-    for a in apis:
-        masked = a.api_key[:6] + "..." + a.api_key[-4:] if len(a.api_key) > 12 else "***"
-        lines.append(f"• <b>{a.name}</b> — {a.base_url} (ключ: <code>{masked}</code>)")
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    text = await build_apis_text(message.from_user.id)
+    await message.answer(text, parse_mode="HTML")
 
 
 @router.message(Command("delete_api"))

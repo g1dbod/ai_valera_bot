@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import logging
-from aiogram import Router
-from aiogram.types import Message
-from aiogram.filters import Command
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.fsm.context import FSMContext
 
-from bot.database import AsyncSessionLocal, get_active_model, get_context, get_apis, get_models
+from aiogram import Router, F
+from aiogram.filters import Command
+from aiogram.types import Message, CallbackQuery
+from aiogram.fsm.context import FSMContext
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from bot.database import (
+    AsyncSessionLocal, get_active_model, get_context, get_apis, get_models,
+)
+from bot.handlers.api_handlers import build_apis_text, start_add_api
+from bot.handlers.model_handlers import (
+    build_models_text, build_select_model, start_add_model,
+)
+from bot.handlers.context_handlers import build_context_text, start_add_context
 
 log = logging.getLogger(__name__)
 router = Router()
@@ -16,7 +24,7 @@ HELP_TEXT = """
 <b>🤖 Telegram AI Gateway</b>
 
 <b>Управление API:</b>
-/add_api — добавить API одной строкой: <code>Название|ссылка|ключ</code>
+/add_api — добавить API: <code>Название|ссылка|ключ</code>
 /api — список подключений
 /delete_api — удалить подключение
 
@@ -35,16 +43,16 @@ HELP_TEXT = """
 /clear — очистить историю чата
 
 <b>Прочее:</b>
+/cancel — прервать текущий ввод
 /settings — текущие настройки и быстрые кнопки
 /help — эта справка
-/cancel — прервать текущий ввод
-
-<b>Типы моделей:</b>
-• <b>chat</b> — текстовый диалог (со стримингом), поддерживает изображения
-• <b>image</b> — генерация изображений
-• <b>svg</b> — генерация SVG (файл + PNG-превью)
-• <b>styled</b> — генерация с референсным изображением-стилем
 """
+
+
+@router.message(Command("help"))
+async def cmd_help(message: Message) -> None:
+    await message.answer(HELP_TEXT, parse_mode="HTML")
+
 
 @router.message(Command("cancel"))
 async def cmd_cancel(message: Message, state: FSMContext) -> None:
@@ -52,16 +60,13 @@ async def cmd_cancel(message: Message, state: FSMContext) -> None:
         await message.answer("Нечего отменять.")
         return
     await state.clear()
-    await message.answer("↩️ Ввод отменён. Можете начать заново.")
-
-@router.message(Command("help"))
-async def cmd_help(message: Message) -> None:
-    await message.answer(HELP_TEXT, parse_mode="HTML")
+    await message.answer("↩️ Ввод отменён.")
 
 
 @router.message(Command("settings"))
 async def cmd_settings(message: Message) -> None:
     user_id = message.from_user.id
+
     async with AsyncSessionLocal() as session:
         active = await get_active_model(session, user_id)
         ctx = await get_context(session, user_id)
@@ -70,8 +75,7 @@ async def cmd_settings(message: Message) -> None:
 
     active_str = (
         f"<b>{active.name}</b> (<code>{active.model_id}</code>, {active.model_type})"
-        if active
-        else "не выбрана"
+        if active else "не выбрана"
     )
     ctx_str = f"{len(ctx)} символов" if ctx else "не задан"
 
@@ -95,34 +99,33 @@ async def cmd_settings(message: Message) -> None:
     await message.answer(text, parse_mode="HTML", reply_markup=builder.as_markup())
 
 
-# Route settings-panel buttons back to their commands
-from aiogram import F
-from aiogram.types import CallbackQuery
-
-
 @router.callback_query(F.data.startswith("cmd:"))
-async def cb_settings_cmd(callback: CallbackQuery) -> None:
+async def cb_settings_cmd(callback: CallbackQuery, state: FSMContext) -> None:
     cmd = callback.data.split(":", 1)[1]
-    fake = callback.message
-    # Simply re-send as if user typed the command
+    user_id = callback.from_user.id          # ← человек, а не бот
+    msg = callback.message
+
     await callback.answer()
-    dispatch = {
-        "add_api": "Используйте команду /add_api",
-        "add_model": "Используйте команду /add_model",
-        "select_model": "Используйте команду /select_model",
-        "api": None,
-        "models": None,
-        "context": None,
-    }
-    # For list commands we can inline-call their logic
+
     if cmd == "api":
-        from bot.handlers.api_handlers import cmd_list_apis
-        await cmd_list_apis(callback.message)
+        await msg.answer(await build_apis_text(user_id), parse_mode="HTML")
+
     elif cmd == "models":
-        from bot.handlers.model_handlers import cmd_list_models
-        await cmd_list_models(callback.message)
+        await msg.answer(await build_models_text(user_id), parse_mode="HTML")
+
     elif cmd == "context":
-        from bot.handlers.context_handlers import cmd_show_context
-        await cmd_show_context(callback.message)
+        await msg.answer(await build_context_text(user_id), parse_mode="HTML")
+
+    elif cmd == "add_api":
+        await start_add_api(user_id, state, msg.answer)
+
+    elif cmd == "add_model":
+        text, kb = await start_add_model(user_id, state)
+        await msg.answer(text, parse_mode="HTML", reply_markup=kb)
+
+    elif cmd == "select_model":
+        text, kb = await build_select_model(user_id)
+        await msg.answer(text, parse_mode="HTML", reply_markup=kb)
+
     else:
-        await callback.message.answer(dispatch.get(cmd, ""))
+        await msg.answer("Неизвестная команда.")

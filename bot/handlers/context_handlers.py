@@ -16,15 +16,27 @@ router = Router()
 class AddContextStates(StatesGroup):
     waiting_text = State()
 
+ADD_CONTEXT_PROMPT = (
+    "Введите <b>системный контекст / инструкции</b> для AI.\n"
+    "Этот текст будет передаваться как system-prompt в каждом запросе."
+)
+
+
+async def build_context_text(user_id: int) -> str:
+    async with AsyncSessionLocal() as session:
+        ctx = await get_context(session, user_id)
+    if not ctx:
+        return "Контекст не задан."
+    return f"<b>Текущий контекст:</b>\n<pre>{ctx[:3000]}</pre>"
+
+
+async def start_add_context(user_id: int, state: FSMContext, send) -> None:
+    await state.set_state(AddContextStates.waiting_text)
+    await send(ADD_CONTEXT_PROMPT, parse_mode="HTML")
 
 @router.message(Command("add_context"))
 async def cmd_add_context(message: Message, state: FSMContext) -> None:
-    await state.set_state(AddContextStates.waiting_text)
-    await message.answer(
-        "Введите <b>системный контекст / инструкции</b> для AI.\n"
-        "Этот текст будет передаваться как system-prompt в каждом запросе.",
-        parse_mode="HTML",
-    )
+    await start_add_context(message.from_user.id, state, message.answer)
 
 
 @router.message(AddContextStates.waiting_text)
@@ -50,11 +62,5 @@ async def cmd_delete_context(message: Message) -> None:
 
 @router.message(Command("context"))
 async def cmd_show_context(message: Message) -> None:
-    async with AsyncSessionLocal() as session:
-        ctx = await get_context(session, message.from_user.id)
-    if not ctx:
-        await message.answer("Контекст не задан.")
-    else:
-        await message.answer(
-            f"<b>Текущий контекст:</b>\n<pre>{ctx[:3000]}</pre>", parse_mode="HTML"
-        )
+    text = await build_context_text(message.from_user.id)
+    await message.answer(text, parse_mode="HTML")

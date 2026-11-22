@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import logging
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+
 
 from bot.database import (
     AsyncSessionLocal, add_model, get_models, get_apis,
@@ -25,16 +26,31 @@ class AddModelStates(StatesGroup):
     waiting_style_image = State()
 
 
-# ── /add_model ───────────────────────────────────────────────────────────────
-
-@router.message(Command("add_model"))
-async def cmd_add_model(message: Message, state: FSMContext) -> None:
+async def build_models_text(user_id: int) -> str:
     async with AsyncSessionLocal() as session:
-        apis = await get_apis(session, message.from_user.id)
+        models = await get_models(session, user_id)
+    if not models:
+        return "Нет добавленных моделей. Используйте /add_model."
+
+    lines = ["<b>Ваши модели:</b>"]
+    for m in models:
+        active = " ✅" if m.is_active else ""
+        api_name = m.api.name if m.api else "?"
+        lines.append(
+            f"• <b>{m.name}</b> — <code>{m.model_id}</code> "
+            f"[{m.model_type}] · API: {api_name}{active}"
+        )
+    return "\n".join(lines)
+
+
+async def start_add_model(
+    user_id: int, state: FSMContext
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    async with AsyncSessionLocal() as session:
+        apis = await get_apis(session, user_id)
 
     if not apis:
-        await message.answer("Сначала добавьте API через /add_api.")
-        return
+        return "Сначала добавьте API через /add_api.", None
 
     await state.set_state(AddModelStates.waiting_api)
 
@@ -43,11 +59,35 @@ async def cmd_add_model(message: Message, state: FSMContext) -> None:
         builder.button(text=a.name, callback_data=f"addm_api:{a.id}")
     builder.adjust(2)
 
-    await message.answer(
+    return (
         "Выберите <b>API</b>, к которому будет привязана новая модель:",
-        parse_mode="HTML",
-        reply_markup=builder.as_markup(),
+        builder.as_markup(),
     )
+
+
+async def build_select_model(
+    user_id: int,
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    async with AsyncSessionLocal() as session:
+        models = await get_models(session, user_id)
+
+    if not models:
+        return "Нет моделей для выбора. Используйте /add_model.", None
+
+    builder = InlineKeyboardBuilder()
+    for m in models:
+        label = f"{'✅ ' if m.is_active else ''}{m.name} [{m.model_type}]"
+        builder.button(text=label, callback_data=f"activate:{m.id}")
+    builder.adjust(1)
+
+    return "Выберите активную модель:", builder.as_markup()
+
+# ── /add_model ───────────────────────────────────────────────────────────────
+
+@router.message(Command("add_model"))
+async def cmd_add_model(message: Message, state: FSMContext) -> None:
+    text, kb = await start_add_model(message.from_user.id, state)
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("addm_api:"), AddModelStates.waiting_api)
@@ -182,38 +222,14 @@ async def _finish_add_model(message: Message, state: FSMContext, user_id: int) -
 
 @router.message(Command("models"))
 async def cmd_list_models(message: Message) -> None:
-    async with AsyncSessionLocal() as session:
-        models = await get_models(session, message.from_user.id)
-    if not models:
-        await message.answer("Нет добавленных моделей. Используйте /add_model.")
-        return
-
-    lines = ["<b>Ваши модели:</b>"]
-    for m in models:
-        active = " ✅" if m.is_active else ""
-        api_name = m.api.name if m.api else "?"
-        lines.append(
-            f"• <b>{m.name}</b> — <code>{m.model_id}</code> "
-            f"[{m.model_type}] · API: {api_name}{active}"
-        )
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    text = await build_models_text(message.from_user.id)
+    await message.answer(text, parse_mode="HTML")
 
 
 @router.message(Command("select_model"))
 async def cmd_select_model(message: Message) -> None:
-    async with AsyncSessionLocal() as session:
-        models = await get_models(session, message.from_user.id)
-    if not models:
-        await message.answer("Нет моделей для выбора. Используйте /add_model.")
-        return
-
-    builder = InlineKeyboardBuilder()
-    for m in models:
-        label = f"{'✅ ' if m.is_active else ''}{m.name} [{m.model_type}]"
-        builder.button(text=label, callback_data=f"activate:{m.id}")
-    builder.adjust(1)
-
-    await message.answer("Выберите активную модель:", reply_markup=builder.as_markup())
+    text, kb = await build_select_model(message.from_user.id)
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("activate:"))
